@@ -3,6 +3,11 @@ const mysql = require('mysql');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const app = express();
+const fs = require('fs');
+const mime = require('mime');
+const { Console } = require('console');
+const { URLSearchParams } = require('url');
+
 
 app.use(bodyParser.json());
 
@@ -11,7 +16,7 @@ const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
   password: '',
-  database: 'user_information'
+  database: 'employees'
 });
 
 // Connect to database
@@ -46,17 +51,27 @@ class Employee {
 }
 
 // GET all employees
-app.get('/get/employees', (req, res) => {
+app.get('/employees/get', (req, res) => {
   const sql = 'SELECT * FROM employees';
   db.query(sql, (err, result) => {
     if (err) throw err;
+
+    //const b64 = Buffer.from(result.Body.Image_employee).toString('base64');
     const employees = result.map(row => new Employee(row.ID, row.Name, row.Phone, row.Address, row.Position, row.Mail, row.Image_employee));
+    res.header("Access-Control-Allow-Origin", "*");
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
     res.json(employees);
+
   });
 });
 
-// GET employee by ID
-app.get('/get/employees/:ID', (req, res) => {
+app.use("/uploads", express.static("uploads"));
+app.use(express.json());
+
+//GET employee select for param or query
+
+// GET employee by ID param 
+app.get('/employees/get/employee/:ID', (req, res) => {
   const ID = req.params.ID;
   const sql = 'SELECT * FROM employees WHERE ID = ?';
   db.query(sql, [ID], (err, result) => {
@@ -66,36 +81,72 @@ app.get('/get/employees/:ID', (req, res) => {
     } else {
       const row = result[0];
       const employee = new Employee(row.ID, row.Name, row.Phone, row.Address, row.Position, row.Mail, row.Image_employee);
+
       res.json(employee);
     }
   });
 });
 
-// POST a new employee
-app.post('/add/employees', upload.single('Image_employee'), (req, res) => {
+// GET employee by ID query
+app.get('/employees/get/employee/', (req, res) => {
+  const ID = req.query.ID;
+  const sql = 'SELECT * FROM employees WHERE ID = ?';
+  db.query(sql, [ID], (err, result) => {
+    if (err) throw err;
+    if (result.length === 0) {
+      res.status(404).send('Employee not found');
+    } else {
+      const row = result[0];
+      const employee = new Employee(row.ID, row.Name, row.Phone, row.Address, row.Position, row.Mail, row.Image_employee);
+
+      res.json(employee);
+    }
+  });
+});
+
+// parse application/x-www-form-urlencoded
+app.use(bodyParser.urlencoded({ extended: false }));
+
+// parse application/json
+app.use(bodyParser.json());
+
+
+//POST a new employee new string param json
+app.post('/employees/add', upload.single('Image_employee'), (req, res) => {
   const Name = req.body.Name;
   const Phone = req.body.Phone;
   const Address = req.body.Address;
   const Position = req.body.Position;
   const Mail = req.body.Mail;
+
+  console.log(req.file);
+  console.log(req.file.filename);
+  const base64Data = new Buffer(JSON.stringify(req.file)).toString("base64");
+  console.log(base64Data);
   const Image_employee = req.file.filename;
+  //console.log(req.file.filename.buffer.toString("base64"));
   const sql = 'INSERT INTO employees (Name, Phone, Address, Position, Mail, Image_employee) VALUES (?, ?, ?, ?, ?, ?)';
   db.query(sql, [Name, Phone, Address, Position, Mail, Image_employee], (err, result) => {
     if (err) throw err;
     const employee = new Employee(result.InsertId, Name, Phone, Address, Position, Mail, Image_employee);
+
     res.json(employee);
+
   });
 });
 
-// PUT (update) an employee by ID
-app.put('/edit/employees/:ID', upload.single('Image_employee'), (req, res) => {
+
+
+//PUT PARAM JSON
+// PUT (update) an employee by ID all part data
+app.put('/employees/edit/:ID', upload.single('Image_employee'), (req, res) => {
   const ID = req.params.ID;
   const Name = req.body.Name;
   const Phone = req.body.Phone;
   const Address = req.body.Address;
   const Position = req.body.Position;
   const Mail = req.body.Mail;
-  let Image_employee = null;
+  const Image_employee = req.file;
   if (req.file) {
     Image_employee = req.file.filename;
   }
@@ -111,21 +162,64 @@ app.put('/edit/employees/:ID', upload.single('Image_employee'), (req, res) => {
   });
 });
 
-// DELETE an employee by ID
-app.delete('/delete/employees/:ID', (req, res) => {
+// PUT (update) an employee by ID some part data
+app.put('/employees/edit/part/:ID', upload.single('Image_employee'), (req, res) => {
   const ID = req.params.ID;
-  const sql = 'DELETE FROM employees WHERE ID = ?';
-  db.query(sql, [ID], (err, result) => {
+  const Name = req.body.Name;
+  const Phone = req.body.Phone;
+  const Address = req.body.Address;
+  const Position = req.body.Position;
+  const Mail = req.body.Mail;
+  const Image_employee = req.file;
+  if (req.file) {
+    Image_employee = req.file.filename;
+  }
+  const sql = 'UPDATE employees SET Name = ? WHERE ID = ?';
+  db.query(sql, [Name, ID], (err, result) => {
     if (err) throw err;
     if (result.affectedRows === 0) {
       res.status(404).send('Employee not found');
     } else {
-      res.send(`Employee with ID ${ID} deleted`);
+      const employee = new Employee(ID, Name, Phone, Address, Position, Mail, Image_employee);
+      res.json(employee);
     }
   });
 });
 
+
+
+// DELETE employee by ID query
+app.delete('/employees/get/employee/', (req, res) => {
+  const ID = req.query.ID;
+  const sql = 'DELETE FROM employees WHERE ID = ?';
+  db.query(sql, [ID], (err, result) => {
+    if (err) throw err;
+    if (result.length === 0) {
+      res.status(404).send('Employee not found');
+    } else {
+      res.json("Delete Success");
+    }
+  });
+});
+
+// DELETE employee by ID PARAMS
+app.delete('/employees/get/employee/:ID', (req, res) => {
+  const ID = req.params.ID;
+  const sql = 'DELETE FROM employees WHERE ID = ?';
+  db.query(sql, [ID], (err, result) => {
+    if (err) throw err;
+    if (result.length === 0) {
+      res.status(404).send('Employee not found');
+    } else {
+
+      res.json("Delete Success");
+    }
+  });
+});
+
+
+
 // Start server
-app.listen(3000, () => {
-  console.log('Server started on port 3000');
+app.listen(8000, () => {
+  console.log('Server started on port 8000');
 });
